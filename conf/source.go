@@ -3,11 +3,18 @@ package conf
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/pkg/errors"
-	"gopkg.in/yaml.v2"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"os"
+	"strconv"
+	"strings"
+
+	"github.com/nacos-group/nacos-sdk-go/clients"
+	"github.com/nacos-group/nacos-sdk-go/common/constant"
+	"github.com/nacos-group/nacos-sdk-go/vo"
+	"github.com/pkg/errors"
+	"gopkg.in/yaml.v2"
 )
 
 type Source interface {
@@ -173,4 +180,70 @@ func CMDLineSource() Source {
 	}
 
 	return &MapSource{name: "cmd", items: items}
+}
+// NacosSource 创建nacos的配置源
+func NacosSource(nacosUrl, namespaceId, dataId, group, username, password string) (Source, error) {
+	source, err := nacosConfig(nacosUrl, namespaceId, dataId, group, username, password)
+	if err != nil {
+		return nil, err
+	}
+	return NewYAMLSource(fmt.Sprintf("nacos-%v-%v-%v", namespaceId, dataId, group), []byte(source))
+}
+
+func nacosConfig(nacosUrl, namespaceId, dataId, group, username, password string) (string, error) {
+	url, err := url.Parse(nacosUrl)
+
+	if err != nil {
+		return "", errors.Wrapf(err, "nacos地址解析错误, url: %v", nacosUrl)
+	}
+	
+	port := 80
+	host := url.Host
+
+	// 如果host是ip:port, 解析出ip和port
+	if strings.Contains(host, ":") {
+		temp := strings.Split(host, ":")
+		host = temp[0]
+		port, err = strconv.Atoi(temp[1])
+		if err != nil {
+			return "", errors.Wrapf(err, "nacos地址端口解析错误, url: %v", nacosUrl)
+		}
+	}
+
+	scs := []constant.ServerConfig{
+		{
+			IpAddr: host,
+			Port: uint64(port),
+			ContextPath: url.Path,
+			Scheme: url.Scheme,
+		},
+	}
+
+	cc := constant.ClientConfig{
+		NamespaceId:         namespaceId, //namespace id
+		TimeoutMs:           5000,
+		NotLoadCacheAtStart: true,
+		Username: username,
+		Password: password,
+	}
+
+	client, err := clients.CreateConfigClient(map[string]interface{}{
+		"serverConfigs": scs,
+		"clientConfig":  cc,
+	})
+
+	if err != nil {
+		return "", errors.Wrapf(err, "nacos config client创建失败, nacosUrl: %v, namespace: %v", nacosUrl, namespaceId)
+	}
+
+	content, err := client.GetConfig(vo.ConfigParam{
+		DataId: dataId,
+		Group:  group,
+	})
+
+	if err != nil {
+		return "", errors.Wrapf(err, "nacos 获取配置失败, nacosUrl: %v, namespace: %v, dataId: %v, group: %v", nacosUrl, namespaceId, dataId, group)
+	}
+
+	return content, nil
 }

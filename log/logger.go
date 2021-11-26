@@ -18,6 +18,24 @@ func NewStdLog() *log.Logger {
 	return zap.NewStdLog(logger.Desugar())
 }
 
+// NewStdLogAtError 创建golang内建的logger
+func NewStdLogAtError() *log.Logger {
+	return NewStdLogAt(zap.ErrorLevel)
+}
+
+// NewStdLogAtDebug 创建golang内建的logger
+func NewStdLogAtDebug() *log.Logger {
+	return NewStdLogAt(zap.DebugLevel)
+}
+
+func NewStdLogAt(level zapcore.Level) *log.Logger {
+	l, err := zap.NewStdLogAt(logger.Desugar(), level)
+	if err != nil {
+		panic(err)
+	}
+	return l
+}
+
 // Info 输出info日志
 func Info(args ...interface{}) {
 	logger.Info(args...)
@@ -38,6 +56,11 @@ func Debug(args ...interface{}) {
 	logger.Debug(args...)
 }
 
+// Fatalf 输出Fatal日志
+func Fatal(args ...interface{}) {
+	logger.Fatal(args...)
+}
+
 // Infof 输出info日志
 func Infof(fmt string, args ...interface{}) {
 	logger.Infof(fmt, args...)
@@ -56,6 +79,11 @@ func Errorf(fmt string, args ...interface{}) {
 // Debugf 输出Debug日志
 func Debugf(fmt string, args ...interface{}) {
 	logger.Debugf(fmt, args...)
+}
+
+// Fatalf 输出Fatal日志
+func Fatalf(fmt string, args ...interface{}) {
+	logger.Fatalf(fmt, args...)
 }
 
 // Init 初始化日志工具
@@ -97,19 +125,20 @@ func Init(debug bool, logPath, serviceName, address string) error {
 			MaxAge:     28, // days
 		})
 
+		cores = append(cores,
+			zapcore.NewCore(consoleEncoder, fileErrors, highPriority),
+			zapcore.NewCore(consoleEncoder, fileCommon, middlePriority),
+		)
+
 		// 日志服务，只收集错误日志
 		pbEncoder := newProtobufEncoder(zap.NewDevelopmentEncoderConfig(), serviceName)
 		pbWs, err := newProtobufWriterSyncer(address)
 
-		if err != nil {
-			return fmt.Errorf("远程日志初始化错误, %v: %w", address, err)
+		if err == nil {
+			cores = append(cores, zapcore.NewCore(pbEncoder, pbWs, highPriority))
+		} else {
+			fmt.Printf("远程日志初始化错误, %v: %v\n", address, err)
 		}
-
-		cores = append(cores,
-			zapcore.NewCore(consoleEncoder, fileErrors, highPriority),
-			zapcore.NewCore(consoleEncoder, fileCommon, middlePriority),
-			zapcore.NewCore(pbEncoder, pbWs, highPriority),
-		)
 	}
 
 	core := zapcore.NewTee(cores...)

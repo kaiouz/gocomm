@@ -43,6 +43,60 @@ func (c *Config) AddLast(source Source) {
 	c.sources = append(c.sources, source)
 }
 
+// AddCommandLineSource 添加命令行的配置
+func (c *Config) AddCommandLineSource() {
+	c.AddLast(CMDLineSource())
+}
+
+// AddNacosSource 添加nacos配置
+func (c *Config) AddNacosSource(nacosUrl, namespaceId, dataId, group, username, password string) error {
+	source, err := NacosSource(nacosUrl, namespaceId, dataId, group, username, password)
+	if err != nil {
+		return err
+	}
+	c.AddLast(source)
+	return nil
+}
+
+// AddNacosSourceFromConfig 从配置中获取参数添加nacos的配置
+func (c *Config) AddNacosSourceFromConfig() error {
+	dataId := c.GetStringDefault("nacos.dataId", "")
+	namespace := c.GetStringDefault("nacos.namespaceId", "")
+	nacosUrl := c.GetStringDefault("nacos.url", "")
+	group := c.GetStringDefault("nacos.group", "DEFAULT_GROUP")
+	username := c.GetStringDefault("nacos.username", "")
+	password := c.GetStringDefault("nacos.password", "")
+
+	if nacosUrl == "" || namespace == "" || dataId == "" {
+		fmt.Println("did not load nacos config source,  because not found nacos params from config")
+		return nil
+	}
+
+	return c.AddNacosSource(nacosUrl, namespace, dataId, group, username, password)
+}
+
+// AddFileSource 添加文件配置
+func (c *Config) AddFileSource(file string) error {
+	source, err := FileSource(file)
+
+	if err != nil {
+		return err
+	}
+
+	c.AddLast(source)
+	return nil
+}
+
+// AddFileSourceFromConfig 从配置中获取参数添加文件配置
+func (c *Config) AddFileSourceFromConfig() error {
+	file := c.GetStringDefault("config.file", "")
+	if file == "" {
+		fmt.Println("did not load file config source, because not found config.file from config")
+		return nil
+	}
+	return c.AddFileSource(file)
+}
+
 // 获取配置项的值, 不存在配置项则返回零值和NotFoundErr, error只可能是nil或NotFoundErr
 func (c *Config) GetString(key string) (string, error) {
 	for _, s := range c.sources {
@@ -440,7 +494,7 @@ func (c *Config) getStruct(key string, v reflect.Value) error {
 
 		k := key
 		if !f.Anonymous {
-			prop := f.Tag.Get("prop")
+			prop := f.Tag.Get("conf")
 			// 跳过此字段
 			if prop == "-" {
 				continue
@@ -464,4 +518,9 @@ func (c *Config) getStruct(key string, v reflect.Value) error {
 	}
 
 	return nfe
+}
+
+// NewConfig 创建配置
+func NewConfig() *Config {
+	return &Config{}
 }
